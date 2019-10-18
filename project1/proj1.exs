@@ -1,9 +1,5 @@
-#Final Code
-
 defmodule Vampirenumber do
  def start_link(num1,num2) do
-    #num1 = "n1 = " |> IO.gets() |> String.trim_trailing() |> String.to_integer()
-    #num2 = "n2 = " |> IO.gets() |> String.trim_trailing() |> String.to_integer()
     main(num1,num2)
   end
 
