@@ -52,45 +52,6 @@ defmodule Proj2 do
   def updatePIDState(pid, nodeID) do
     GenServer.call(pid, {:UpdatePIDState, nodeID})
   end
-
-  # ---------------------------------PUSH_SUM----------------------------------
-
-  def startPushSum(allNodes, startTime, indexed_actors, neighbours_map) do
-    chosenFirstNode = Enum.random(allNodes)
-    neighbourList = Map.fetch!(neighbours_map, chosenFirstNode)
-    IO.puts("Executing...")
-
-    GenServer.cast(
-      chosenFirstNode,
-      {:ReceivePushSum, 0, 0, startTime, indexed_actors, neighbourList, neighbours_map}
-    )
-  end
-
-  def sendPushSum(randomNode, myS, myW, startTime, indexed_actors, neighbours, neighbours_map) do
-    GenServer.cast(
-      randomNode,
-      {:ReceivePushSum, myS, myW, startTime, indexed_actors, neighbours, neighbours_map}
-    )
-  end
-
-  # Check if the nodes have converged
-  def wait_till_converged_pushsum(allNodes, startTime) do
-    pscounts =
-      Enum.map(allNodes, fn pid ->
-        state = GenServer.call(pid, :get_state)
-        {_, pscount, _, _} = state
-        pscount
-      end)
-
-    if length(Enum.filter(pscounts, fn x -> x == 2 end)) < (0.9 * length(allNodes)) |> trunc do
-      wait_till_converged_gossip(allNodes, startTime)
-    else
-      endTime = System.monotonic_time(:millisecond)
-      timeTaken = endTime - startTime
-      IO.puts("Convergence achieved in #{timeTaken} Milliseconds")
-    end
-  end
-
   # ---------------------------------GOSSIP----------------------------------
 
   def startGossip(allnodes, neighbours) do
