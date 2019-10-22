@@ -8,6 +8,21 @@ defmodule Proj2 do
     numNodes = numNodes |> String.to_integer()
     startTime = System.monotonic_time(:millisecond)
 
+    # Rounding of the values to the nearest square and cube
+    numNodes =
+      cond do
+        topology == "torus" ->
+          rowCountvalue = :math.pow(numNodes, 1 / 3) |> ceil
+          rowCountvalue * rowCountvalue * rowCountvalue
+
+        topology == "honeycomb" || topology == "randHoneycomb" || topology == "rand2D" ->
+          row_count = :math.sqrt(numNodes) |> ceil
+          row_count * row_count
+
+        true ->
+          numNodes
+      end
+
     # Associating all nodes with their PID's
     allNodes =
       Enum.map(1..numNodes, fn x ->
@@ -52,6 +67,45 @@ defmodule Proj2 do
   def updatePIDState(pid, nodeID) do
     GenServer.call(pid, {:UpdatePIDState, nodeID})
   end
+
+  # ---------------------------------PUSH_SUM----------------------------------
+
+  def startPushSum(allNodes, startTime, indexed_actors, neighbours_map) do
+    chosenFirstNode = Enum.random(allNodes)
+    neighbourList = Map.fetch!(neighbours_map, chosenFirstNode)
+    IO.puts("Executing...")
+
+    GenServer.cast(
+      chosenFirstNode,
+      {:ReceivePushSum, 0, 0, startTime, indexed_actors, neighbourList, neighbours_map}
+    )
+  end
+
+  def sendPushSum(randomNode, myS, myW, startTime, indexed_actors, neighbours, neighbours_map) do
+    GenServer.cast(
+      randomNode,
+      {:ReceivePushSum, myS, myW, startTime, indexed_actors, neighbours, neighbours_map}
+    )
+  end
+
+  # Check if the nodes have converged
+  def wait_till_converged_pushsum(allNodes, startTime) do
+    pscounts =
+      Enum.map(allNodes, fn pid ->
+        state = GenServer.call(pid, :get_state)
+        {_, pscount, _, _} = state
+        pscount
+      end)
+
+    if length(Enum.filter(pscounts, fn x -> x == 2 end)) < (0.9 * length(allNodes)) |> trunc do
+      wait_till_converged_gossip(allNodes, startTime)
+    else
+      endTime = System.monotonic_time(:millisecond)
+      timeTaken = endTime - startTime
+      IO.puts("Convergence achieved in #{timeTaken} Milliseconds")
+    end
+  end
+
   # ---------------------------------GOSSIP----------------------------------
 
   def startGossip(allnodes, neighbours) do
@@ -113,26 +167,52 @@ defmodule Proj2 do
           Map.put(acc, actor, neighbor_pids)
         end)
 
-      topology == "full" ->
-        Enum.reduce(1..numNodes, %{}, fn x, acc ->
-          neighbors =
-            cond do
-              x == 1 -> Enum.to_list(2..numNodes)
-              x == numNodes -> Enum.to_list(1..(numNodes - 1))
-              true -> Enum.to_list(1..(x - 1)) ++ Enum.to_list((x + 1)..numNodes)
-            end
+      topology == "rand2D" ->
+        initial_map = %{}
+        # creating a map with key = actor pid  and value = list of x and y coordinates
+        actor_with_coordinates =
+          Enum.map(actors, fn x ->
+            Map.put(initial_map, x, [:rand.uniform()] ++ [:rand.uniform()])
+          end)
 
-          neighbor_pids =
-            Enum.map(neighbors, fn i ->
-              {:ok, n} = Map.fetch(indexd_actors, i)
-              n
-            end)
+        Enum.reduce(actor_with_coordinates, %{}, fn x, acc ->
+          [actor_pid] = Map.keys(x)
+          actor_coordinates = Map.values(x)
 
-          {:ok, actor} = Map.fetch(indexd_actors, x)
-          Map.put(acc, actor, neighbor_pids)
+          list_of_neighbors =
+            ([] ++
+               Enum.map(actor_with_coordinates, fn x ->
+                 if is_connected(actor_coordinates, Map.values(x)) do
+                   Enum.at(Map.keys(x), 0)
+                 end
+               end))
+            |> Enum.filter(&(&1 != nil))
+
+          # one actor should not be its own neighbour
+          updated_neighbors = list_of_neighbors -- [actor_pid]
+          Map.put(acc, actor_pid, updated_neighbors)
         end)
   end
 
+  # checks if 2 nodes are within 0.1 distance
+  def is_connected(actor_cordinates, other_cordinates) do
+    actor_cordinates = List.flatten(actor_cordinates)
+    other_cordinates = List.flatten(other_cordinates)
+
+    x1 = Enum.at(actor_cordinates, 0)
+    x2 = Enum.at(other_cordinates, 0)
+    y1 = Enum.at(actor_cordinates, 1)
+    y2 = Enum.at(other_cordinates, 1)
+
+    x_dist = :math.pow(x2 - x1, 2)
+    y_dist = :math.pow(y2 - y1, 2)
+    distance = round(:math.sqrt(x_dist + y_dist))
+
+    cond do
+      distance > 1 -> false
+      distance <= 1 -> true
+    end
+  end
 
   # Handle Cast methods for PushSum and Gossip
   def handle_cast(
